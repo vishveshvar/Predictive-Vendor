@@ -15,23 +15,21 @@ class Settings:
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+    DEMO_MODE: bool = os.getenv("DEMO_MODE", "true" if os.getenv("ENVIRONMENT") != "production" else "false").lower() in ("true", "1", "yes")
     SECRET_KEY: str = os.getenv("SECRET_KEY", "super-secret-hex-key-change-in-production-min-32-chars")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
 
     # CORS
     _allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
-    ALLOWED_ORIGINS: List[str] = (
-        [origin.strip() for origin in _allowed_origins_env.split(",") if origin.strip()]
-        if _allowed_origins_env
-        else [
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-            "*"
-        ]
-    )
+    _parsed_origins = [origin.strip() for origin in _allowed_origins_env.split(",") if origin.strip()] if _allowed_origins_env else []
+    ALLOWED_ORIGINS: List[str] = list(set(_parsed_origins + [
+        "https://predictive-vendor.vercel.app",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]))
 
     # Database
     MONGODB_URI: str = os.getenv("MONGODB_URI", os.getenv("MONGO_URL", "mongodb://localhost:27017"))

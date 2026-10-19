@@ -46,14 +46,23 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      // Step A: Authenticate with Firebase Client SDK
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      let firebaseToken = null;
 
-      // Step B: Retrieve the fresh JWT token (force refresh)
-      const token = await userCredential.user.getIdToken(true);
+      // Step A: Attempt Firebase Client SDK authentication first
+      try {
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        firebaseToken = await userCredential.user.getIdToken(true);
+      } catch (fbErr) {
+        console.warn('Firebase signIn notice:', fbErr?.code || fbErr?.message);
+        if (fbErr?.code === 'auth/too-many-requests') {
+          throw new Error('Access temporarily disabled due to many failed attempts. Try again later.');
+        }
+        // If Firebase does not recognize the user (e.g. demo account or database custom JWT user),
+        // proceed to backend authentication
+      }
 
-      // Step C: Pass this token to the backend via api.js client (via AuthContext login)
-      const user = await login(email, password, token);
+      // Step B: Authenticate with the backend API
+      const user = await login(email, password, firebaseToken);
       if (user.role === 'client') {
         navigate('/client', { replace: true });
       } else {
@@ -68,6 +77,12 @@ export default function LoginPage() {
         msg = 'No account found with this email. Please register first.';
       } else if (err?.code === 'auth/too-many-requests') {
         msg = 'Access temporarily disabled due to many failed attempts. Try again later.';
+      } else if (err?.isNetworkError) {
+        msg = err.message;
+      } else if (err?.status === 401) {
+        msg = 'Invalid email or password. Please verify credentials.';
+      } else if (err?.status === 405) {
+        msg = 'API configuration error (HTTP 405): The login endpoint was rejected by the server.';
       } else {
         msg = msg.replace('Firebase: ', '');
       }

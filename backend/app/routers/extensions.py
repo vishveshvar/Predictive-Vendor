@@ -71,10 +71,7 @@ def list_purchase_orders(
     role = current_user.get("role")
     store_id = current_user.get("store_client_id") if role == "client" else None
     orders = extension_service.get_purchase_orders(store_client_id=store_id)
-    return {
-        "purchase_orders": orders,
-        "count": len(orders)
-    }
+    return orders
 
 @router.get("/purchase-orders/{po_id}/pdf")
 def download_po_pdf(

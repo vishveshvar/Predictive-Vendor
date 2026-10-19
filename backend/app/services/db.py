@@ -51,14 +51,24 @@ class DatabaseService:
             self._engine_name = "MongoDB Atlas / Network Cluster"
             logger.info("Successfully connected to live MongoDB instance.")
         except (ConnectionFailure, ServerSelectionTimeoutError, Exception) as exc:
+            if settings.ENVIRONMENT == "production" and not settings.DEMO_MODE:
+                logger.error(
+                    f"MongoDB connection failed in production ({exc}). "
+                    "Demonstration fallback is disabled (DEMO_MODE=false). Halting to prevent silent data loss."
+                )
+                raise RuntimeError(
+                    f"Production MongoDB connection failed: {exc}. "
+                    "To explicitly enable isolated demonstration mode, set DEMO_MODE=true."
+                )
+
             logger.warning(
                 f"MongoDB connection failed ({exc}). "
-                "Activating Native In-Memory Engine (mongomock fallback) in accordance with Section 14."
+                "Activating Isolated Demonstration Mode (mongomock fallback) in accordance with Section 14."
             )
             self._client = mongomock.MongoClient()
             self._db = self._client[settings.MONGODB_DB_NAME]
             self._is_fallback = True
-            self._engine_name = "Native In-Memory Engine (mongomock fallback)"
+            self._engine_name = "Isolated Demonstration Mode (mongomock fallback)"
 
         self._ensure_indexes()
         self._auto_hydrate_fallback()

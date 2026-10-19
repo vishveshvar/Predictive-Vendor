@@ -294,6 +294,11 @@ def track_order_public(hash_code: str):
             }
         ]
 
+    sanitized_items = [
+        {"sku": it.get("sku"), "name": it.get("name"), "quantity": it.get("quantity", 1)}
+        for it in order.get("items", [])
+    ]
+
     return {
         "order_id": order.get("order_id"),
         "status": order.get("status", "Dispatched"),
@@ -304,8 +309,7 @@ def track_order_public(hash_code: str):
         "origin": order.get("origin", "Wholesale Central Hub, Chicago, IL"),
         "destination": order.get("destination", "Regional Retail Facility"),
         "store_client_id": order.get("store_client_id"),
-        "store_name": order.get("store_name"),
-        "items": order.get("items", []),
+        "items": sanitized_items,
         "item_count": item_count,
         "timeline": timeline,
         "last_updated": timeline[-1].get("timestamp") if timeline else order.get("created_at")

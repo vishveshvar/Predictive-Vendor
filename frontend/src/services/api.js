@@ -3,7 +3,8 @@
  * Handles token injection, request tracing, and structured error responses.
  */
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+const RAW_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+const BASE_URL = RAW_BASE_URL.replace(/\/+$/, '');
 
 async function request(endpoint, options = {}) {
   const storedToken = localStorage.getItem('token');
@@ -21,10 +22,21 @@ async function request(endpoint, options = {}) {
     options.body = JSON.stringify(options.body);
   }
 
-  const url = `${BASE_URL}${endpoint}`;
-  try {
-    const response = await fetch(url, { ...options, headers });
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const url = `${BASE_URL}${cleanEndpoint}`;
 
+  let response;
+  try {
+    response = await fetch(url, { ...options, headers });
+  } catch (netErr) {
+    console.error(`[API Network Error] ${cleanEndpoint}:`, netErr);
+    const err = new Error('Network error: Unable to connect to backend server. Please verify network connectivity and backend server status.');
+    err.isNetworkError = true;
+    err.endpoint = cleanEndpoint;
+    throw err;
+  }
+
+  try {
     if (response.status === 401) {
       // Clear token and notify
       localStorage.removeItem('token');
@@ -37,37 +49,72 @@ async function request(endpoint, options = {}) {
         errorMsg = data?.detail?.message || data?.detail || data?.message || errorMsg;
       } catch (_) {}
 
-      if (!window.location.pathname.includes('/login') && endpoint !== '/auth/login') {
+      if (!window.location.pathname.includes('/login') && cleanEndpoint !== '/auth/login') {
         window.location.href = '/login?expired=true';
       }
-      throw new Error(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
+      const err = new Error(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
+      err.status = 401;
+      throw err;
     }
 
     // Handle binary responses (PDF, Excel, CSV)
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('application/pdf') || contentType.includes('application/vnd.openxmlformats') || contentType.includes('text/csv')) {
       if (!response.ok) {
-        throw new Error(`Export failed with status: ${response.status}`);
+        const err = new Error(`Export failed with status: ${response.status}`);
+        err.status = response.status;
+        throw err;
       }
       return await response.blob();
     }
 
     const text = await response.text();
-    let data = {};
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch (e) {
-      throw new Error(`Server returned non-JSON response (Status ${response.status}): ${text.slice(0, 100)}`);
+    let data = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        // Handle non-JSON responses (HTML 404/405/502 error pages or SPA rewrites)
+        const isHtml = contentType.includes('text/html') || text.trim().startsWith('<');
+        let errorMsg;
+        if (response.status === 405) {
+          errorMsg = `Server error (HTTP 405 Method Not Allowed): Endpoint '${cleanEndpoint}' was rejected. If hosted on Vercel, ensure VITE_API_BASE_URL points to the deployed backend.`;
+        } else if (response.status === 404) {
+          errorMsg = `Server error (HTTP 404 Not Found): Endpoint '${cleanEndpoint}' was not found.`;
+        } else if (response.status >= 500) {
+          errorMsg = `Server error (HTTP ${response.status}): The backend service is temporarily unavailable.`;
+        } else {
+          errorMsg = `Server returned non-JSON response (Status ${response.status}): ${isHtml ? 'HTML page returned instead of API JSON' : text.slice(0, 100)}`;
+        }
+        const err = new Error(errorMsg);
+        err.status = response.status;
+        err.statusText = response.statusText;
+        err.isHtml = isHtml;
+        throw err;
+      }
     }
 
     if (!response.ok) {
-      const errorMsg = data?.detail || data?.message || data?.detail?.message || 'An unexpected error occurred';
-      throw new Error(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
+      let errorMsg = data?.detail?.message || data?.detail || data?.message;
+      if (!errorMsg) {
+        if (response.status === 405) {
+          errorMsg = `HTTP 405 Method Not Allowed: Endpoint '${cleanEndpoint}' does not accept this method. Check API deployment and routing.`;
+        } else if (response.status === 404) {
+          errorMsg = `HTTP 404 Not Found: Endpoint '${cleanEndpoint}' does not exist on this server.`;
+        } else {
+          errorMsg = `Request failed with status ${response.status} (${response.statusText || 'Error'})`;
+        }
+      }
+      const err = new Error(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
+      err.status = response.status;
+      err.statusText = response.statusText;
+      err.code = data?.code;
+      throw err;
     }
 
-    return data;
+    return data || {};
   } catch (err) {
-    console.error(`[API Error] ${endpoint}:`, err);
+    console.error(`[API Error] ${cleanEndpoint}:`, err);
     throw err;
   }
 }

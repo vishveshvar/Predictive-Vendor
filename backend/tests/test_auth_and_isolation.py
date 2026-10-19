@@ -76,3 +76,35 @@ def test_invalid_tracking_hash_returns_404(client):
     res = client.get("/api/v1/track/INVALID_HASH_1234")
     assert res.status_code == 404
     assert res.json()["code"] == "INVALID_HASH"
+
+def test_invalid_demo_password_rejected(client):
+    res = client.post("/api/v1/auth/login", json={"email": "client1@store.com", "password": "wrong_password_xyz"})
+    assert res.status_code == 401
+
+def test_unregistered_email_rejected(client):
+    res = client.post("/api/v1/auth/login", json={"email": "nonexistent_user_99@store.com", "password": "demo1234"})
+    assert res.status_code == 401
+
+def test_custom_user_register_and_login_lifecycle(client):
+    email = "new_manager_test@flagship.com"
+    pwd = "SecureManagerPass2026!"
+    # 1. Register new store manager
+    reg_res = client.post("/api/v1/auth/register", json={
+        "email": email,
+        "password": pwd,
+        "role": "client",
+        "display_name": "Test Manager",
+        "store_client_id": "STORE-001"
+    })
+    assert reg_res.status_code == 201
+    assert "access_token" in reg_res.json()
+
+    # 2. Login with correct password
+    login_ok = client.post("/api/v1/auth/login", json={"email": email, "password": pwd})
+    assert login_ok.status_code == 200
+    assert "access_token" in login_ok.json()
+
+    # 3. Login with incorrect password must be rejected
+    login_bad = client.post("/api/v1/auth/login", json={"email": email, "password": "wrong_password"})
+    assert login_bad.status_code == 401
+

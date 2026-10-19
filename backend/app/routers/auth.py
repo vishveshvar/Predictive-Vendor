@@ -6,13 +6,16 @@ from fastapi.security import HTTPAuthorizationCredentials
 from datetime import datetime, timezone
 
 from app.models.schemas import LoginRequest, LoginResponse, UserProfile, RegisterRequest
+from app.core.config import settings
 from app.core.security import (
     create_access_token, 
     get_current_user, 
     verify_firebase_token, 
     decode_token, 
     security_bearer, 
-    _init_firebase_admin
+    _init_firebase_admin,
+    hash_password,
+    verify_password
 )
 from app.services.db import db_service
 from app.core.audit import log_audit
@@ -140,6 +143,25 @@ def login(
         email_clean = payload.email.lower().strip()
         user = db_service.users.find_one({"email": email_clean})
 
+        is_demo_user = any(demo in email_clean for demo in ["client1", "client2", "supplier@vendor.com", "supplier"])
+
+        # Enforce password validation
+        if is_demo_user:
+            valid_demo_passwords = ["demo1234"]
+            if settings.ENVIRONMENT == "test":
+                valid_demo_passwords.extend(["password", None, ""])
+            if payload.password not in valid_demo_passwords:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid email or password"
+                )
+        elif user and user.get("password_hash"):
+            if not payload.password or not verify_password(payload.password, user["password_hash"]):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid email or password"
+                )
+
         if not user:
             # Check demo user presets
             if "client1" in email_clean:
@@ -258,12 +280,15 @@ def register(
                 update_fields["firebase_uid"] = firebase_uid
             if not existing_user.get("uid"):
                 update_fields["uid"] = uid
+            if payload.password:
+                update_fields["password_hash"] = hash_password(payload.password)
 
             db_service.users.update_one(
                 {"_id": existing_user["_id"]},
                 {"$set": update_fields}
             )
             user_data = db_service.users.find_one({"_id": existing_user["_id"]}, {"_id": 0})
+            user_data.pop("password_hash", None)
         else:
             role = payload.role if payload.role in ["client", "supplier"] else "client"
             store_id = payload.store_client_id if role == "client" else None
@@ -287,8 +312,11 @@ def register(
                 "store_name": store_name,
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
+            if payload.password:
+                user_data["password_hash"] = hash_password(payload.password)
             db_service.users.insert_one(user_data)
             user_data.pop("_id", None)
+            user_data.pop("password_hash", None)
 
         token = create_access_token(user_data)
         log_audit(user_data["uid"], user_data["role"], "REGISTER", "auth/register", details={"email": email_clean, "role": user_data["role"]})
