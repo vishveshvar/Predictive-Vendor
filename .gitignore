@@ -1,0 +1,39 @@
+# Environment files and credentials
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+backend/service_account.json
+**/service_account.json
+
+# Python
+.venv/
+venv/
+**/.venv/
+**/venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+**/.pytest_cache/
+
+# Node and build output
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+
+# Runtime output and generated state
+logs/
+*.log
+data/db_snapshot.json
+backend/ml_engine/model.pkl
+backend/ml_engine/metrics.json
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
